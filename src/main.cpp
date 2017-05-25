@@ -153,21 +153,21 @@ namespace chip8
                         }
                         case 0x6: // SHR Vx {, Vy} - set Vx = Vy SHR 1
                         {
-                            interp_data.Vs[0xF] = interp_data.Vs[x] & 1; 
-                            interp_data.Vs[  x] >>= 1;
-                            break;
+                            interp_data.Vs[0xF] = interp_data.Vs[x] & 1; //
+                            interp_data.Vs[  x] >>= 1;                   // On the original interpreter, the value of
+                            break;                                       //
+                        }                                                // Vy is shifted. On current implementations,
+                        case 0xE: // SHL Vx {, Vy} - set Vx = Vy SHL 1   //
+                        {                                                // Y is ignored.
+                            interp_data.Vs[0xF] = interp_data.Vs[x] >> 7;//
+                            interp_data.Vs[  x] <<= 1;     /*https://en.wikipedia.org/wiki/CHIP-8#cite_note-shift-2*/
+                            break;                                       
                         }
                         case 0x7: // SUBN Vx, Vy - set Vx = Vy - Vx, set VF = NOT borrow
                         {
                             const unsigned temp = interp_data.Vs[y] - interp_data.Vs[x];
                             interp_data.Vs[0xF] = !(temp >> 8);
                             interp_data.Vs[  x] =   temp; 
-                            break;
-                        }
-                        case 0xE: // SHL Vx {, Vy} - set Vx = Vy SHL 1
-                        {
-                            interp_data.Vs[0xF] = interp_data.Vs[x] >> 7;
-                            interp_data.Vs[  x] <<= 1; 
                             break;
                         }
                     }
@@ -238,6 +238,10 @@ namespace chip8
                         case 0x1E: // ADD I, Vx - set I = I + Vx
                             interp_data.I       += interp_data.Vs[x];
                             interp_data.Vs[0xF]  = interp_data.I >> 12;
+                            // VF is set to 1 when there is a range overflow (I+VX>0xFFF), and to 0 when there isn't.
+                            // This is an undocumented feature of the CHIP-8
+                            //
+                            // https://en.wikipedia.org/wiki/CHIP-8#cite_note-onlgame-3
                             break;
                         case 0x29: // LD F, Vx - set I = location of sprite for digit Vx
                             interp_data.I = interp_data.font + interp_data.Vs[x] * 5 - mem;
@@ -249,12 +253,24 @@ namespace chip8
                             mem[interp_data.I    ] = interp_data.Vs[x] / 100 % 10;
                             break;
                         }
-                        case 0x55: // LD [I], Vx - store registers V0 through Vx in memory starting at location I
-                            std::copy_n(interp_data.Vs, x + 1, mem + interp_data.I);
-                            break;
-                        case 0x65: // LD Vx, [I] - read registers V0 through Vx from memory starting at location I
-                            std::copy_n(mem + interp_data.I, x + 1, interp_data.Vs);
-                            break;
+                    /**/case 0x55: // LD [I], Vx - store registers V0 through Vx in memory starting at location I
+                    /**/    //std::copy_n(interp_data.Vs, x + 1, mem + interp_data.I);
+                    /**/    for (unsigned i = 0; i <= x; ++i)                
+                    /**/        mem[interp_data.I++] = interp_data.Vs[i];
+                    /**/    break;
+                    /**/case 0x65: // LD Vx, [I] - read registers V0 through Vx from memory starting at location I
+                    /**/    std::copy_n(mem + interp_data.I, x + 1, interp_data.Vs);
+                    /**/    for (unsigned i = 0; i <= x; ++i)
+                    /**/        interp_data.Vs[i] = mem[interp_data.I++];
+                    /**/    break;
+                    /** On the original interpreter, when the operation is done, I=I+X+1.*/
+                    /** On current implementations, I is left unchanged.
+                     ** 
+                     ** https://en.wikipedia.org/wiki/CHIP-8#cite_note-memi-4
+                     **
+                     ** Old version is needed for same programs though.
+                     **
+                     **/
                     }
                     break;
                 }
@@ -318,7 +334,7 @@ int main()
                     bool rom_loading_status = true;
                     try
                     {
-                        std::vector<unsigned char> rom{::load_binary_file("res/WIPEOFF")};
+                        std::vector<unsigned char> rom{::load_binary_file("res/HANOI")};
                         chip8_interpreter.copy_rom(rom.data(), rom.size());
                     }
                     catch (const std::exception& ex)
@@ -339,27 +355,23 @@ int main()
                             {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
                         };
                         
-                        const unsigned frame_period = 1000 / 60;
+                        const unsigned insts_per_frame = 50000;
+                        const unsigned timers_updating_period = 1000 / 60;
+                        
                         unsigned acc_time = 0;
-
-                        Uint32 previous_time = ::SDL_GetTicks();
 
                         for (bool running = true; running;)
                         {
-                            if (!chip8_interpreter.wait())
+                            const Uint32 start_time = ::SDL_GetTicks();
+
+                            for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
+                                chip8_interpreter.execute_instruction();
+
+                            acc_time += ::SDL_GetTicks() - start_time;
+                            while (acc_time >= timers_updating_period)
                             {
-                                const Uint32 current_time = ::SDL_GetTicks();
-                                const Uint32 elapsed_time = current_time - previous_time;
-                                previous_time = current_time;
-
-                                acc_time += elapsed_time;
-
-                                while (acc_time >= frame_period)
-                                {
-                                    chip8_interpreter.execute_instruction();
-                                    chip8_interpreter.update_timers();
-                                    acc_time -= elapsed_time;
-                                }
+                                chip8_interpreter.update_timers();
+                                acc_time -= timers_updating_period;
                             }
 
                             Uint32* pixels;
