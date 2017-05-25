@@ -32,7 +32,7 @@ namespace chip8
             struct
             {
                 unsigned char display[64 * 32 / 8], font[16 * 5], Vs[16], keys[16];
-                unsigned char delay_timer, sound_timer, SP;
+                unsigned char delay_timer, sound_timer, SP, wait_key;
                 unsigned short stack[16], PC, I;
             } interp_data;
         };
@@ -60,6 +60,12 @@ namespace chip8
         }
 
         void update_key(int code, bool status) noexcept {interp_data.keys[code] = status;}
+
+        void set_wait_key(int code) noexcept
+        {
+            interp_data.Vs[interp_data.wait_key] = code;
+            interp_data.wait_key = 0;
+        }
 
         void execute_instruction() noexcept
         {
@@ -221,6 +227,7 @@ namespace chip8
                             interp_data.Vs[x] = interp_data.delay_timer;
                             break;
                         case 0x0A: // LD Vx, K - wait for a key press, store the value of the key in Vx
+                            interp_data.wait_key = x;
                             break;
                         case 0x15: // LD DT, Vx - set delay timer = Vx
                             interp_data.delay_timer = interp_data.Vs[x];
@@ -255,6 +262,8 @@ namespace chip8
         }
 
         const unsigned char* display() const noexcept {return interp_data.display;}
+
+        bool wait() const noexcept {return interp_data.wait_key;}
     };
 }
 
@@ -294,11 +303,9 @@ int main()
 
         SDL_Window* const window = 
             ::SDL_CreateWindow("CHIP-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
-                    WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
+                    WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
         if (window)
         {
-            //::SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
-
             SDL_Renderer* const renderer = ::SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
             if (renderer)
             {
@@ -322,6 +329,8 @@ int main()
 
                     if (rom_loading_status)
                     {
+                        chip8_interpreter.copy_font(chip8::fonts::original_chip8);
+
                         const std::unordered_map<SDL_Scancode, int> keys_map
                         {
                             {SDL_SCANCODE_1, 0x1}, {SDL_SCANCODE_2, 0x2}, {SDL_SCANCODE_3, 0x3}, {SDL_SCANCODE_C, 0xC},
@@ -337,17 +346,20 @@ int main()
 
                         for (bool running = true; running;)
                         {
-                            const Uint32 current_time = ::SDL_GetTicks();
-                            const Uint32 elapsed_time = current_time - previous_time;
-                            previous_time = current_time;
-
-                            acc_time += elapsed_time;
-
-                            while (acc_time >= frame_period)
+                            if (!chip8_interpreter.wait())
                             {
-                                chip8_interpreter.execute_instruction();
-                                chip8_interpreter.update_timers();
-                                acc_time -= elapsed_time;
+                                const Uint32 current_time = ::SDL_GetTicks();
+                                const Uint32 elapsed_time = current_time - previous_time;
+                                previous_time = current_time;
+
+                                acc_time += elapsed_time;
+
+                                while (acc_time >= frame_period)
+                                {
+                                    chip8_interpreter.execute_instruction();
+                                    chip8_interpreter.update_timers();
+                                    acc_time -= elapsed_time;
+                                }
                             }
 
                             Uint32* pixels;
@@ -376,7 +388,11 @@ int main()
                                     {
                                         const auto key_iter = keys_map.find(event.key.keysym.scancode);
                                         if (key_iter != keys_map.cend())
+                                        {
                                             chip8_interpreter.update_key(key_iter->second, event.type == SDL_KEYDOWN);
+                                            if (chip8_interpreter.wait() && event.type == SDL_KEYDOWN)
+                                                chip8_interpreter.set_wait_key(key_iter->second);
+                                        }
                                         break;
                                     }
                                 }
