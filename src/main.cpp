@@ -259,7 +259,7 @@ namespace chip8
                     /**/        mem[interp_data.I++] = interp_data.Vs[i];
                     /**/    break;
                     /**/case 0x65: // LD Vx, [I] - read registers V0 through Vx from memory starting at location I
-                    /**/    std::copy_n(mem + interp_data.I, x + 1, interp_data.Vs);
+                    /**/    //std::copy_n(mem + interp_data.I, x + 1, interp_data.Vs);
                     /**/    for (unsigned i = 0; i <= x; ++i)
                     /**/        interp_data.Vs[i] = mem[interp_data.I++];
                     /**/    break;
