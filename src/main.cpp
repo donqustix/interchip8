@@ -236,13 +236,16 @@ namespace chip8
                             interp_data.sound_timer = interp_data.Vs[x];
                             break;
                         case 0x1E: // ADD I, Vx - set I = I + Vx
-                            interp_data.I       += interp_data.Vs[x];
-                            interp_data.Vs[0xF]  = interp_data.I >> 12;
+                        {
+                            const unsigned  temp = interp_data.I + interp_data.Vs[x];
+                            interp_data.Vs[0xF] = temp >> 12;
+                            interp_data.I = temp;
                             // VF is set to 1 when there is a range overflow (I+VX>0xFFF), and to 0 when there isn't.
                             // This is an undocumented feature of the CHIP-8
                             //
                             // https://en.wikipedia.org/wiki/CHIP-8#cite_note-onlgame-3
                             break;
+                        }
                         case 0x29: // LD F, Vx - set I = location of sprite for digit Vx
                             interp_data.I = interp_data.font + interp_data.Vs[x] * 5 - mem;
                             break;
