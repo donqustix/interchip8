@@ -28,7 +28,7 @@ namespace chip8
     {
         union
         {
-            unsigned char mem[4095]{};
+            unsigned char mem[4096]{};
             struct
             {
                 unsigned char display[64 * 32 / 8], font[16 * 5], Vs[16], keys[16];
@@ -355,36 +355,12 @@ int main()
                             {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
                         };
                         
-                        const unsigned insts_per_frame = 50000;
-                        const unsigned timers_updating_period = 1000 / 60;
-                        
+                        constexpr unsigned insts_per_frame = 50000, timers_updating_period = 1000 / 60;
                         unsigned acc_time = 0;
 
                         for (bool running = true; running;)
                         {
                             const Uint32 start_time = ::SDL_GetTicks();
-
-                            for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
-                                chip8_interpreter.execute_instruction();
-
-                            acc_time += ::SDL_GetTicks() - start_time;
-                            while (acc_time >= timers_updating_period)
-                            {
-                                chip8_interpreter.update_timers();
-                                acc_time -= timers_updating_period;
-                            }
-
-                            Uint32* pixels;
-                            int pitch;
-
-                            ::SDL_LockTexture(texture, nullptr, reinterpret_cast<void**>(&pixels), &pitch);
-                            ::blit_chip8_display(chip8_interpreter, pixels);
-                            
-                            ::SDL_UnlockTexture(texture);
-
-                            ::SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-                            
-                            ::SDL_RenderPresent(renderer);
 
                             for (static SDL_Event event; ::SDL_PollEvent(&event);)
                             {
@@ -409,6 +385,25 @@ int main()
                                     }
                                 }
                             }
+
+                            for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
+                                chip8_interpreter.execute_instruction();
+
+                            Uint32* pixels;
+                            int pitch;
+
+                            ::SDL_LockTexture(texture, nullptr, reinterpret_cast<void**>(&pixels), &pitch);
+                            ::blit_chip8_display(chip8_interpreter, pixels);
+                            
+                            ::SDL_UnlockTexture(texture);
+
+                            ::SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+                            
+                            ::SDL_RenderPresent(renderer);
+
+                            for (acc_time += ::SDL_GetTicks() - start_time; acc_time >= timers_updating_period;
+                                                                            acc_time -= timers_updating_period)
+                                chip8_interpreter.update_timers();
                         }
                     }
 

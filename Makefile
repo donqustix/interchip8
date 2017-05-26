@@ -1,5 +1,5 @@
 all: src/main.cpp
-	g++ -std=c++14 -Wall -Wextra src/main.cpp -o bin/chip8-interpreter -lSDL2
+	g++ -std=c++14 -pedantic -Wall -Wextra src/main.cpp -o bin/chip8-interpreter -lSDL2
 
 
 all2: src/chip8.cc
