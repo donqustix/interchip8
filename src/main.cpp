@@ -337,7 +337,7 @@ int main()
                     bool rom_loading_status = true;
                     try
                     {
-                        std::vector<unsigned char> rom{::load_binary_file("res/HANOI")};
+                        std::vector<unsigned char> rom{::load_binary_file("res/WIPEOFF")};
                         chip8_interpreter.copy_rom(rom.data(), rom.size());
                     }
                     catch (const std::exception& ex)
@@ -358,14 +358,23 @@ int main()
                             {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
                         };
                         
-                        constexpr unsigned insts_per_frame = 50000, timers_updating_period = 1000 / 60;
-                        unsigned acc_time = 0;
+                        constexpr unsigned seconds_per_frame = 1000 / 60, insts_per_frame = 10;
+                        constexpr unsigned timers_updating_period = 1000 / 60;
+
+                        unsigned acc_frame_time = 0, acc_timers_time = 0;
+
+                        SDL_Event event;
+
+                        Uint32 previous_time = ::SDL_GetTicks();
 
                         for (bool running = true; running;)
                         {
-                            const Uint32 start_time = ::SDL_GetTicks();
+                            const Uint32      start_time = ::SDL_GetTicks();
+                            acc_frame_time += start_time - previous_time;
+                            
+                            previous_time = start_time;
 
-                            for (static SDL_Event event; ::SDL_PollEvent(&event);)
+                            while (::SDL_PollEvent(&event))
                             {
                                 switch (event.type)
                                 {
@@ -389,8 +398,13 @@ int main()
                                 }
                             }
 
-                            for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
-                                chip8_interpreter.execute_instruction();
+                            while (acc_frame_time >= seconds_per_frame)
+                            {
+                                for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
+                                    chip8_interpreter.execute_instruction();
+
+                                acc_frame_time -= seconds_per_frame;
+                            }
 
                             Uint32* pixels;
                             int pitch;
@@ -404,9 +418,9 @@ int main()
                             
                             ::SDL_RenderPresent(renderer);
 
-                            for (acc_time += ::SDL_GetTicks() - start_time; acc_time >= timers_updating_period;
-                                                                            acc_time -= timers_updating_period)
-                                chip8_interpreter.update_timers();
+                            for (acc_timers_time += ::SDL_GetTicks() - start_time;
+                                 acc_timers_time >= timers_updating_period;
+                                 acc_timers_time -= timers_updating_period) chip8_interpreter.update_timers();
                         }
                     }
 
