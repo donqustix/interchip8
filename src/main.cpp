@@ -472,19 +472,22 @@ int main()
             chip8::Interpreter chip8_interpreter;
             chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
-                std::vector<unsigned char> rom{::load_binary_file("res/BRIX")};
+                std::vector<unsigned char> rom{::load_binary_file("res/HANOI")};
                 chip8_interpreter.copy_rom(rom.data(), rom.size());
             }
 
-            const std::unordered_map<SDL_Scancode, int> keys_map
+            std::unordered_map<int, int> keys_map
             {
                 {SDL_SCANCODE_Z, 0x1}, {SDL_SCANCODE_S, 0x2}, {SDL_SCANCODE_C, 0x3}, {SDL_SCANCODE_C, 0xC},
                 {SDL_SCANCODE_A, 0x4}, {SDL_SCANCODE_F, 0x5}, {SDL_SCANCODE_D, 0x6}, {SDL_SCANCODE_D, 0xD},
                 {SDL_SCANCODE_Q, 0x7}, {SDL_SCANCODE_W, 0x8}, {SDL_SCANCODE_E, 0x9}, {SDL_SCANCODE_E, 0xE},
                 {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
             };
+
+            for (int i = 0; i < 10; ++i)
+                keys_map.insert({SDL_SCANCODE_1 + i, (i + 1) % 10});
             
-            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 10;
+            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 50000;
 
             unsigned acc_update_time = 0;
 
