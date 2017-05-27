@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <string>
+#include <queue>
 #include <stdexcept>
 #include <array>
 #include <iostream>
@@ -284,8 +285,8 @@ namespace chip8
 
         const unsigned char* display() const noexcept {return interp_data.display;}
 
-        bool sound() const noexcept {return interp_data.sound_timer;}
         bool wait()  const noexcept {return interp_data.wait_key;   }
+        bool sound() const noexcept {return interp_data.sound_timer;}
     };
 }
 
@@ -336,6 +337,61 @@ namespace
 
 #undef MAKE_SDL_OBJECT_STRUCT
 
+    class AudioDevice
+    {
+        SDL_AudioDeviceID handle;
+
+    public:
+        AudioDevice(const SDL_AudioSpec& desired,
+                          SDL_AudioSpec* obtained = nullptr, int allow_changes = 0) :
+            handle{::SDL_OpenAudioDevice(nullptr, 0, &desired, obtained, allow_changes)}
+        {
+            if (!handle)
+                throw std::runtime_error{"it is failed to open an audio device: " + std::string{::SDL_GetError()}};
+        }
+
+        ~AudioDevice() {::SDL_CloseAudioDevice(handle);}
+
+        AudioDevice           (const AudioDevice&) = delete;
+        AudioDevice& operator=(const AudioDevice&) = delete;
+
+        void pause(int on) noexcept {::SDL_PauseAudioDevice(handle, on);}
+    };
+
+    void blit_chip8_display(const chip8::Interpreter& interp, Uint32* buffer) noexcept
+    {
+        const unsigned char* const display = interp.display();
+        for (int i = 0; i < 64 * 32; ++i)
+            buffer[i] = 0xFFFFFFFF * (display[i >> 3] >> (7 - i % 8) & 1);
+    }
+
+    void audio_callback(void*, Uint8* stream, int len) noexcept
+    {
+        auto target = reinterpret_cast<Sint16*>(stream);
+        
+        for (; len; len -= 4, target += 2)
+            target[0] = target[1] = 300 * ((len & 256) - 64);
+        
+        std::fill_n(stream, len, 0);
+    }
+
+    SDL_AudioSpec make_audio_spec(int                           freq,
+                                  SDL_AudioFormat               format,
+                                  Uint8                         channels,
+                                  Uint16                        samples,
+                                  SDL_AudioCallback             callback,
+                                  void*                         userdata = nullptr) noexcept
+    {
+        SDL_AudioSpec audio_spec{};
+        audio_spec.freq             =       freq;
+        audio_spec.format           =       format;
+        audio_spec.channels         =       channels;
+        audio_spec.samples          =       samples;
+        audio_spec.callback         =       callback;
+        audio_spec.userdata         =       userdata;
+        return audio_spec;
+    }
+
     template<typename T, typename... Args>
     std::unique_ptr<T, void(*)(T*)> create_SDL_object(Args&&... args)
     {
@@ -345,13 +401,6 @@ namespace
             throw std::runtime_error{"object creation error: " + std::string{::SDL_GetError()}};
 
         return {object_struct.handle, object_struct.pdestructor};
-    }
-
-    void blit_chip8_display(const chip8::Interpreter& interp, Uint32* buffer) noexcept
-    {
-        const unsigned char* const display = interp.display();
-        for (int i = 0; i < 64 * 32; ++i)
-            buffer[i] = 0xFFFFFFFF * (display[i >> 3] >> (7 - i % 8) & 1);
     }
 
     std::vector<unsigned char> load_binary_file(const std::string& filepath)
@@ -374,7 +423,7 @@ namespace
 
 int main()
 {
-    if (::SDL_Init(SDL_INIT_VIDEO) >= 0)
+    if (::SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) >= 0)
     {
         constexpr int WINDOW_WIDTH  = 640;
         constexpr int WINDOW_HEIGHT = 480;
@@ -390,7 +439,9 @@ int main()
             const auto texture =
                 ::create_SDL_object<SDL_Texture>(renderer.get(),
                         SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, 64, 32);
-        
+
+            AudioDevice audio_device{::make_audio_spec(44100, AUDIO_S16SYS, 2, 4096, ::audio_callback)};
+
             chip8::Interpreter chip8_interpreter;
             chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
@@ -465,6 +516,8 @@ int main()
                 ::SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
                 
                 ::SDL_RenderPresent(renderer.get());
+
+                audio_device.pause(!chip8_interpreter.sound());
 
                 for (acc_timers_time += ::SDL_GetTicks() - start_time;
                      acc_timers_time >= timers_updating_period;
