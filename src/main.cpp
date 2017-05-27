@@ -339,6 +339,8 @@ namespace
 
     class AudioDevice
     {
+        friend class AudioDeviceLocker;
+
         SDL_AudioDeviceID handle;
 
     public:
@@ -358,6 +360,22 @@ namespace
         void pause(int on) noexcept {::SDL_PauseAudioDevice(handle, on);}
     };
 
+    class AudioDeviceLocker
+    {
+        SDL_AudioDeviceID handle;
+
+    public:
+        explicit AudioDeviceLocker(AudioDevice& audio_device) noexcept : handle{audio_device.handle}
+        {
+            ::SDL_LockAudioDevice(handle);
+        }
+
+        AudioDeviceLocker           (const AudioDeviceLocker&) = delete;
+        AudioDeviceLocker& operator=(const AudioDeviceLocker&) = delete;
+
+        ~AudioDeviceLocker() {::SDL_UnlockAudioDevice(handle);}
+    };
+
     void blit_chip8_display(const chip8::Interpreter& interp, Uint32* buffer) noexcept
     {
         const unsigned char* const display = interp.display();
@@ -365,14 +383,18 @@ namespace
             buffer[i] = 0xFFFFFFFF * (display[i >> 3] >> (7 - i % 8) & 1);
     }
 
-    void audio_callback(void*, Uint8* stream, int len) noexcept
+    void audio_callback(void* userdata, Uint8* stream, int len) noexcept
     {
-        auto target = reinterpret_cast<Sint16*>(stream);
-        
-        for (; len; len -= 4, target += 2)
-            target[0] = target[1] = 300 * ((len & 256) - 64);
-        
-        std::fill_n(stream, len, 0);
+        const auto audio_queue = static_cast<std::queue<unsigned>*>(userdata);
+        if (audio_queue->empty())
+            std::fill_n(stream, len, 0);
+        else
+        {
+            auto target = reinterpret_cast<Sint16*>(stream);
+            for (; len && audio_queue->front(); len -= 4, target += 2, --audio_queue->front())
+                target[0] = target[1] = 300 * ((len & 256) - 64);
+            if (!audio_queue->front()) audio_queue->pop();
+        }
     }
 
     SDL_AudioSpec make_audio_spec(int                           freq,
@@ -398,7 +420,7 @@ namespace
         const SDL_ObjectStruct<T> object_struct(std::forward<Args>(args)...);
         
         if (!object_struct.handle)
-            throw std::runtime_error{"object creation error: " + std::string{::SDL_GetError()}};
+            throw std::runtime_error{"SDL object creation error: " + std::string{::SDL_GetError()}};
 
         return {object_struct.handle, object_struct.pdestructor};
     }
@@ -440,12 +462,17 @@ int main()
                 ::create_SDL_object<SDL_Texture>(renderer.get(),
                         SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, 64, 32);
 
-            AudioDevice audio_device{::make_audio_spec(44100, AUDIO_S16SYS, 2, 4096, ::audio_callback)};
+            std::queue<unsigned> audio_queue;
+
+            const SDL_AudioSpec audio_spec{::make_audio_spec(44100, AUDIO_S16SYS, 2, 4096, ::audio_callback, &audio_queue)};
+
+            AudioDevice audio_device{audio_spec};
+            audio_device.pause(0);
 
             chip8::Interpreter chip8_interpreter;
             chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
-                std::vector<unsigned char> rom{::load_binary_file("res/UFO")};
+                std::vector<unsigned char> rom{::load_binary_file("res/BRIX")};
                 chip8_interpreter.copy_rom(rom.data(), rom.size());
             }
 
@@ -457,10 +484,9 @@ int main()
                 {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
             };
             
-            constexpr unsigned seconds_per_frame = 1000 / 60, insts_per_frame = 15;
-            constexpr unsigned timers_updating_period = 1000 / 60;
+            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 10;
 
-            unsigned acc_frame_time = 0, acc_timers_time = 0;
+            unsigned acc_update_time = 0;
 
             SDL_Event event;
 
@@ -469,7 +495,7 @@ int main()
             for (bool running = true; running;)
             {
                 const Uint32      start_time = ::SDL_GetTicks();
-                acc_frame_time += start_time - previous_time;
+                acc_update_time += start_time - previous_time;
                 
                 previous_time = start_time;
 
@@ -497,12 +523,18 @@ int main()
                     }
                 }
 
-                while (acc_frame_time >= seconds_per_frame)
+                for (; acc_update_time >= seconds_per_update; acc_update_time -= seconds_per_update)
                 {
-                    for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
+                    for (unsigned i = 0; i < insts_per_update && !chip8_interpreter.wait(); ++i)
                         chip8_interpreter.execute_instruction();
 
-                    acc_frame_time -= seconds_per_frame;
+                    if (chip8_interpreter.sound())
+                    {
+                        const AudioDeviceLocker locker{audio_device};
+                        audio_queue.push(30 * audio_spec.freq / 1000);
+                    }
+
+                    chip8_interpreter.update_timers();
                 }
 
                 Uint32* pixels;
@@ -516,12 +548,6 @@ int main()
                 ::SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
                 
                 ::SDL_RenderPresent(renderer.get());
-
-                audio_device.pause(!chip8_interpreter.sound());
-
-                for (acc_timers_time += ::SDL_GetTicks() - start_time;
-                     acc_timers_time >= timers_updating_period;
-                     acc_timers_time -= timers_updating_period) chip8_interpreter.update_timers();
             }
         }
         catch (const std::exception& ex)
