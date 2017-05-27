@@ -1,12 +1,14 @@
 #include <algorithm>
 #include <fstream>
-#include <stdexcept>
 #include <string>
+#include <stdexcept>
 #include <array>
 #include <iostream>
 #include <vector>
 #include <cstdlib>
 #include <unordered_map>
+#include <memory>
+#include <utility>
 
 #include <SDL2/SDL.h>
 
@@ -282,12 +284,69 @@ namespace chip8
 
         const unsigned char* display() const noexcept {return interp_data.display;}
 
-        bool wait() const noexcept {return interp_data.wait_key;}
+        bool sound() const noexcept {return interp_data.sound_timer;}
+        bool wait()  const noexcept {return interp_data.wait_key;   }
     };
 }
 
 namespace
 {
+    template<typename T> struct SDL_ObjectStruct;
+
+#define SDL_OBJECT_STRUCT(object_type, constructor_list, destructor)    \
+    template<>                                                          \
+    struct SDL_ObjectStruct<object_type>                                \
+    {                                                                   \
+        object_type* handle;                                            \
+        void (*pdestructor)(object_type*) = destructor;                 \
+        constructor_list                                                \
+    };
+
+#define MAKE_SDL_OBJECT_STRUCT(name, constructor_list) \
+             SDL_OBJECT_STRUCT(SDL_##name, constructor_list, SDL_Destroy##name)
+
+#define SDL_OBJECT_CONSTRUCTOR(func, params, args) SDL_ObjectStruct(params) noexcept : handle{func(args)} {}
+
+#define MACRO_VA_ARGS(...) __VA_ARGS__
+
+    MAKE_SDL_OBJECT_STRUCT(Window,
+            SDL_OBJECT_CONSTRUCTOR(::SDL_CreateWindow,
+                MACRO_VA_ARGS(const std::string& title,         int x, int y, int w, int h, Uint32 flags),
+                MACRO_VA_ARGS(                   title.c_str(),     x,     y,     w,     h,        flags)
+            )
+    )
+
+    MAKE_SDL_OBJECT_STRUCT(Renderer,
+            SDL_OBJECT_CONSTRUCTOR(::SDL_CreateRenderer,
+                MACRO_VA_ARGS(SDL_Window* window, int index, Uint32 flags),
+                MACRO_VA_ARGS(            window,     index,        flags)
+            )
+    )
+
+    MAKE_SDL_OBJECT_STRUCT(Texture,
+            SDL_OBJECT_CONSTRUCTOR(::SDL_CreateTexture,
+                MACRO_VA_ARGS(SDL_Renderer* renderer, Uint32 format, int access, int w, int h),
+                MACRO_VA_ARGS(              renderer,        format,     access,     w,     h))
+    )
+
+#undef MACRO_VA_ARGS
+
+#undef SDL_OBJECT_CONSTRUCTOR
+#undef SDL_OBJECT_STRUCT
+
+#undef MAKE_SDL_OBJECT_STRUCT
+
+    template<typename T, typename... Args>
+    std::unique_ptr<T, void(*)(T*)> create_SDL_object(Args&&... args)
+    {
+        const SDL_ObjectStruct<T> object_struct(std::forward<Args>(args)...);
+        
+        if (!object_struct.handle)
+            throw std::runtime_error{"object creation error: " + std::string{::SDL_GetError()}};
+
+        return {object_struct.handle, object_struct.pdestructor};
+    }
+
     void blit_chip8_display(const chip8::Interpreter& interp, Uint32* buffer) noexcept
     {
         const unsigned char* const display = interp.display();
@@ -319,125 +378,103 @@ int main()
     {
         constexpr int WINDOW_WIDTH  = 640;
         constexpr int WINDOW_HEIGHT = 480;
-
-        SDL_Window* const window = 
-            ::SDL_CreateWindow("CHIP-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
-                    WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
-        if (window)
+        try
         {
-            SDL_Renderer* const renderer = ::SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-            if (renderer)
+            const auto window =
+                ::create_SDL_object<SDL_Window>("CHIP-8",
+                        SDL_WINDOWPOS_CENTERED,
+                        SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
+            
+            const auto renderer = ::create_SDL_object<SDL_Renderer>(window.get(), -1, SDL_RENDERER_ACCELERATED);
+
+            const auto texture =
+                ::create_SDL_object<SDL_Texture>(renderer.get(),
+                        SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, 64, 32);
+        
+            chip8::Interpreter chip8_interpreter;
+            chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
-                SDL_Texture* const texture =
-                    ::SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, 64, 32);
-                if (texture)
+                std::vector<unsigned char> rom{::load_binary_file("res/UFO")};
+                chip8_interpreter.copy_rom(rom.data(), rom.size());
+            }
+
+            const std::unordered_map<SDL_Scancode, int> keys_map
+            {
+                {SDL_SCANCODE_Z, 0x1}, {SDL_SCANCODE_S, 0x2}, {SDL_SCANCODE_C, 0x3}, {SDL_SCANCODE_C, 0xC},
+                {SDL_SCANCODE_A, 0x4}, {SDL_SCANCODE_F, 0x5}, {SDL_SCANCODE_D, 0x6}, {SDL_SCANCODE_D, 0xD},
+                {SDL_SCANCODE_Q, 0x7}, {SDL_SCANCODE_W, 0x8}, {SDL_SCANCODE_E, 0x9}, {SDL_SCANCODE_E, 0xE},
+                {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
+            };
+            
+            constexpr unsigned seconds_per_frame = 1000 / 60, insts_per_frame = 15;
+            constexpr unsigned timers_updating_period = 1000 / 60;
+
+            unsigned acc_frame_time = 0, acc_timers_time = 0;
+
+            SDL_Event event;
+
+            Uint32 previous_time = ::SDL_GetTicks();
+
+            for (bool running = true; running;)
+            {
+                const Uint32      start_time = ::SDL_GetTicks();
+                acc_frame_time += start_time - previous_time;
+                
+                previous_time = start_time;
+
+                while (::SDL_PollEvent(&event))
                 {
-                    chip8::Interpreter chip8_interpreter;
-
-                    bool rom_loading_status = true;
-                    try
+                    switch (event.type)
                     {
-                        std::vector<unsigned char> rom{::load_binary_file("res/WIPEOFF")};
-                        chip8_interpreter.copy_rom(rom.data(), rom.size());
-                    }
-                    catch (const std::exception& ex)
-                    {
-                        std::cerr << ex.what() << std::endl;
-                        rom_loading_status = false;
-                    }
-
-                    if (rom_loading_status)
-                    {
-                        chip8_interpreter.copy_font(chip8::fonts::original_chip8);
-
-                        const std::unordered_map<SDL_Scancode, int> keys_map
+                        case SDL_QUIT:
+                            running = false;
+                            break;
+                        case SDL_KEYDOWN:
+                            if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
+                                running = false;
+                        case SDL_KEYUP:
                         {
-                            {SDL_SCANCODE_1, 0x1}, {SDL_SCANCODE_2, 0x2}, {SDL_SCANCODE_3, 0x3}, {SDL_SCANCODE_C, 0xC},
-                            {SDL_SCANCODE_4, 0x4}, {SDL_SCANCODE_5, 0x5}, {SDL_SCANCODE_6, 0x6}, {SDL_SCANCODE_D, 0xD},
-                            {SDL_SCANCODE_7, 0x7}, {SDL_SCANCODE_8, 0x8}, {SDL_SCANCODE_9, 0x9}, {SDL_SCANCODE_E, 0xE},
-                            {SDL_SCANCODE_A, 0xA}, {SDL_SCANCODE_0, 0x0}, {SDL_SCANCODE_F, 0xB}, {SDL_SCANCODE_F, 0xF}
-                        };
-                        
-                        constexpr unsigned seconds_per_frame = 1000 / 60, insts_per_frame = 10;
-                        constexpr unsigned timers_updating_period = 1000 / 60;
-
-                        unsigned acc_frame_time = 0, acc_timers_time = 0;
-
-                        SDL_Event event;
-
-                        Uint32 previous_time = ::SDL_GetTicks();
-
-                        for (bool running = true; running;)
-                        {
-                            const Uint32      start_time = ::SDL_GetTicks();
-                            acc_frame_time += start_time - previous_time;
-                            
-                            previous_time = start_time;
-
-                            while (::SDL_PollEvent(&event))
+                            const auto key_iter = keys_map.find(event.key.keysym.scancode);
+                            if (key_iter != keys_map.cend())
                             {
-                                switch (event.type)
-                                {
-                                    case SDL_QUIT:
-                                        running = false;
-                                        break;
-                                    case SDL_KEYDOWN:
-                                        if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)
-                                            running = false;
-                                    case SDL_KEYUP:
-                                    {
-                                        const auto key_iter = keys_map.find(event.key.keysym.scancode);
-                                        if (key_iter != keys_map.cend())
-                                        {
-                                            chip8_interpreter.update_key(key_iter->second, event.type == SDL_KEYDOWN);
-                                            if (chip8_interpreter.wait() && event.type == SDL_KEYDOWN)
-                                                chip8_interpreter.set_wait_key(key_iter->second);
-                                        }
-                                        break;
-                                    }
-                                }
+                                chip8_interpreter.update_key(key_iter->second, event.type == SDL_KEYDOWN);
+                                if (chip8_interpreter.wait() && event.type == SDL_KEYDOWN)
+                                    chip8_interpreter.set_wait_key(key_iter->second);
                             }
-
-                            while (acc_frame_time >= seconds_per_frame)
-                            {
-                                for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
-                                    chip8_interpreter.execute_instruction();
-
-                                acc_frame_time -= seconds_per_frame;
-                            }
-
-                            Uint32* pixels;
-                            int pitch;
-
-                            ::SDL_LockTexture(texture, nullptr, reinterpret_cast<void**>(&pixels), &pitch);
-                            ::blit_chip8_display(chip8_interpreter, pixels);
-                            
-                            ::SDL_UnlockTexture(texture);
-
-                            ::SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-                            
-                            ::SDL_RenderPresent(renderer);
-
-                            for (acc_timers_time += ::SDL_GetTicks() - start_time;
-                                 acc_timers_time >= timers_updating_period;
-                                 acc_timers_time -= timers_updating_period) chip8_interpreter.update_timers();
+                            break;
                         }
                     }
-
-                    ::SDL_DestroyTexture(texture);
                 }
-                else
-                    std::cerr << "SDL_Texture creation error: " << ::SDL_GetError() << std::endl;
 
-                ::SDL_DestroyRenderer(renderer);
+                while (acc_frame_time >= seconds_per_frame)
+                {
+                    for (unsigned i = 0; i < insts_per_frame && !chip8_interpreter.wait(); ++i)
+                        chip8_interpreter.execute_instruction();
+
+                    acc_frame_time -= seconds_per_frame;
+                }
+
+                Uint32* pixels;
+                int pitch;
+
+                ::SDL_LockTexture(texture.get(), nullptr, reinterpret_cast<void**>(&pixels), &pitch);
+                ::blit_chip8_display(chip8_interpreter, pixels);
+                
+                ::SDL_UnlockTexture(texture.get());
+
+                ::SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
+                
+                ::SDL_RenderPresent(renderer.get());
+
+                for (acc_timers_time += ::SDL_GetTicks() - start_time;
+                     acc_timers_time >= timers_updating_period;
+                     acc_timers_time -= timers_updating_period) chip8_interpreter.update_timers();
             }
-            else
-                std::cerr << "SDL_Renderer creation error: " << ::SDL_GetError() << std::endl;
-
-            ::SDL_DestroyWindow(window);
         }
-        else
-            std::cerr << "SDL_Window creation error: " << ::SDL_GetError() << std::endl;
+        catch (const std::exception& ex)
+        {
+            std::cerr << ex.what() << std::endl;
+        }
 
         ::SDL_Quit();
     }
