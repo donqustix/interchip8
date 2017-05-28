@@ -34,7 +34,7 @@ namespace chip8
             unsigned char mem[4096]{};
             struct
             {
-                unsigned char display[64 * 32 / 8], font[16 * 5], Vs[16], keys[16];
+                unsigned char font[16 * 5], display[64 * 32 / 8], Vs[16], keys[16];
                 unsigned char delay_timer, sound_timer, SP, wait_key;
                 unsigned short stack[16], PC, I;
             } interp_data;
@@ -44,8 +44,8 @@ namespace chip8
         void copy_font(const Font& font) noexcept
         {
             unsigned char* fp = interp_data.font;
-            for (unsigned c : font)
-                for (int i = 16; i >= 0; i -= 4) *fp++ = c >> i & 0xF;
+            for (int i = 0; i < 16 * 5; ++i)
+                fp[i] = font[i / 5] >> (16 - (i % 5) * 4) & 0xF;
         }
 
         void copy_rom(const unsigned char* rom, unsigned size, unsigned loc = 0x200) noexcept
@@ -250,7 +250,7 @@ namespace chip8
                             break;
                         }
                         case 0x29: // LD F, Vx - set I = location of sprite for digit Vx
-                            interp_data.I = interp_data.font + interp_data.Vs[x] * 5 - mem;
+                            interp_data.I = interp_data.Vs[x] * 5;
                             break;
                         case 0x33: // LD B, Vx - store BCD representation of Vx in memory locations I, I + 1, and I + 2
                         {
@@ -380,7 +380,7 @@ namespace
     {
         const unsigned char* const display = interp.display();
         for (int i = 0; i < 64 * 32; ++i)
-            buffer[i] = 0xFFFFFFFF * (display[i >> 3] >> (7 - i % 8) & 1);
+            buffer[i] = 0xFFFFFFFF * (display[i / 8] >> (7 - i % 8) & 1);
     }
 
     void audio_callback(void* userdata, Uint8* stream, int len) noexcept
@@ -472,7 +472,7 @@ int main()
             chip8::Interpreter chip8_interpreter;
             chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
-                std::vector<unsigned char> rom{::load_binary_file("res/HANOI")};
+                std::vector<unsigned char> rom{::load_binary_file("res/BRIX")};
                 chip8_interpreter.copy_rom(rom.data(), rom.size());
             }
 
@@ -487,7 +487,7 @@ int main()
             for (int i = 0; i < 10; ++i)
                 keys_map.insert({SDL_SCANCODE_1 + i, (i + 1) % 10});
             
-            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 50000;
+            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 5;
 
             unsigned acc_update_time = 0;
 
