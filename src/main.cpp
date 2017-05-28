@@ -45,7 +45,7 @@ namespace chip8
         {
             unsigned char* fp = interp_data.font;
             for (int i = 0; i < 16 * 5; ++i)
-                fp[i] = font[i / 5] >> (16 - (i % 5) * 4) & 0xF;
+                fp[i] = (font[i / 5] >> (16 - (i % 5) * 4) & 0xF) << 4;
         }
 
         void copy_rom(const unsigned char* rom, unsigned size, unsigned loc = 0x200) noexcept
