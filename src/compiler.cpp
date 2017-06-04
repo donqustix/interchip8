@@ -83,7 +83,7 @@ namespace chip8
             std::uint16_t parse_insruction(std::string inst, const std::string& inst_params,
                     const std::unordered_map<std::string, unsigned>& labels)
             {
-                std::cout << inst << ' ' << inst_params;
+                //std::cout << inst << ' ' << inst_params;
                 std::vector<std::string> opcode_args;
                 {
                     std::istringstream sstream_params{inst_params};
@@ -168,7 +168,7 @@ namespace chip8
                         i += opcode_args[opcode_arg_index++].length() - 1;
                     }
                 }
-                std::cout << "  -->  " << final_opcode_str << std::endl;
+                //std::cout << "  -->  " << final_opcode_str << std::endl;
                 return std::stoul(final_opcode_str, nullptr, 16);
             }
         }
@@ -190,7 +190,7 @@ namespace chip8
                     else
                     {
                         std::string value{c};
-                        while (sstream.get(c) && c != ',')
+                        while (sstream.get(c) && c != ',' && c != ' ')
                             value.push_back(c);
                         if (value[0] == '0' && value.size() > 2 && value[1] == 'x')
                             object_data.push_back(std::stoul(value, nullptr, 16));
@@ -218,6 +218,10 @@ namespace chip8
                 std::string line;
                 while (std::getline(sstream_source, line))
                 {
+                    const auto cpos = line.find(';');
+                    if (cpos != std::string::npos)
+                        line.erase(cpos); // remove comments
+                    std::cout << line << std::endl;
                     std::istringstream sstream_line{line};
                     std::string first_word;
                     if (sstream_line >> first_word) // is there anything?
@@ -235,8 +239,7 @@ namespace chip8
                             auto add_label = [&](std::string identifier, unsigned address) {
                                 const auto result_pair = 
                                     labels.emplace(std::move(identifier), mem_loc + address);
-                                if (!result_pair.second)
-                                    std::cerr << "error: there is already a label: " << identifier << std::endl;
+                                return result_pair.second;
                             };
                             auto add_pattern = [&](std::istringstream& sstream, std::string label, std::string inst) {
                                 add_label(std::move(label), instructions.size() << 1);
@@ -248,10 +251,9 @@ namespace chip8
                                 if (second_word == "byte") // does the label refer to byte data?
                                 {
                                     const std::vector<std::uint8_t> data = parse_data(sstream_line);
-                                    if (!data.size())
+                                    if (!data.size() || !add_label(first_word, object_data.size()))
                                         return {};
-                                    object_data_labels.push(first_word);
-                                    add_label(std::move(first_word), object_data.size());
+                                    object_data_labels.push(std::move(first_word));
                                     std::copy(data.cbegin(), data.cend(), std::back_inserter(object_data));
                                 }
                                 else // maybe the label refers to an instruction
@@ -263,6 +265,9 @@ namespace chip8
                             {
                                 for (std::string new_line; std::getline(sstream_source, new_line);)
                                 {
+                                    const auto cpos = new_line.find(';');
+                                    if (cpos != std::string::npos)
+                                        new_line.erase(cpos);
                                     std::istringstream sstream_new_line{new_line};
                                     std::string first_new_line_word; // instruction
                                     if (sstream_new_line >> first_new_line_word)

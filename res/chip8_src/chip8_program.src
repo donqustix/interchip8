@@ -1,12 +1,12 @@
-test: byte "dawdwada", 12, 2
+test: byte "dawdwada", 12, 2   ; AWHdahfj
 
 start:
-    ld v0, 0x6
-    ld F, v0
+    ld v0, 0x6 ;ddaw
+    ld F, v0   
 
     ld v0, 16
     ld v1, 8
-    drw v0, v1, 5
+    drw v0, v1, 5          
 
 dadwad: byte 123, 0x23, 0xFF, 0, "dd. ad, d", 1
 
