@@ -83,7 +83,7 @@ namespace chip8
             std::uint16_t parse_insruction(std::string inst, const std::string& inst_params,
                     const std::unordered_map<std::string, unsigned>& labels)
             {
-                std::cout << inst << ' ' << inst_params << std::endl;
+                std::cout << inst << ' ' << inst_params;
                 std::vector<std::string> opcode_args;
                 {
                     std::istringstream sstream_params{inst_params};
@@ -141,7 +141,12 @@ namespace chip8
                                         inst.append(param);
                                     }
                                     else
-                                        opcode_arg_pattern(to_hex_string(label_iter->second));
+                                    {
+                                        const std::string hex_str{to_hex_string(label_iter->second)};
+                                        if (hex_str.size() > 3 - regs)
+                                            return 0;
+                                        opcode_arg_pattern(hex_str);
+                                    }
                                 }
                                 break;
                             }
@@ -163,15 +168,49 @@ namespace chip8
                         i += opcode_args[opcode_arg_index++].length() - 1;
                     }
                 }
-                std::cout << inst << "  -->  " << final_opcode_str << std::endl;
+                std::cout << "  -->  " << final_opcode_str << std::endl;
                 return std::stoul(final_opcode_str, nullptr, 16);
             }
         }
 
+        std::vector<std::uint8_t> parse_data(std::istringstream& sstream)
+        {
+            std::vector<std::uint8_t> object_data;
+            for (char c; sstream >> c;)
+            {
+                if (c == '"')
+                {
+                    while (sstream.get(c) && c != '"')
+                        object_data.push_back(c);
+                }
+                else if (c != ',')
+                {
+                    if (!is_dec_digit(c))
+                        return {};
+                    else
+                    {
+                        std::string value{c};
+                        while (sstream.get(c) && c != ',')
+                            value.push_back(c);
+                        if (value[0] == '0' && value.size() > 2 && value[1] == 'x')
+                            object_data.push_back(std::stoul(value, nullptr, 16));
+                        else
+                        {
+                            if (!is_dec_number(value))
+                                return {};
+                            object_data.push_back(std::stoul(value, nullptr, 10));
+                        }
+                    }
+                }
+            }
+            return object_data;
+        }
+
         std::vector<std::uint8_t> process(const std::string& source, unsigned mem_loc = 0x200)
         {
-            std::vector<std::uint8_t> object_code;
+            std::vector<std::uint8_t> object_code, object_data;
             std::unordered_map<std::string/*identifier*/, unsigned/*address*/> labels;
+            std::queue<std::string> object_data_labels;
             std::queue<std::pair<std::string/*instruction*/, std::string/*parameters*/>> instructions;
             {
                 // parse the source code, find labels and instructions
@@ -191,15 +230,16 @@ namespace chip8
                         };
                         if (first_word.back() == ':' && first_word.size() > 1) // is it a label?
                         {
-                            auto add_label = [&](std::string identifier) {
+                            first_word.pop_back(); // remove ':' character
+
+                            auto add_label = [&](std::string identifier, unsigned address) {
                                 const auto result_pair = 
-                                    labels.emplace(std::move(identifier), mem_loc + instructions.size() * 2);
+                                    labels.emplace(std::move(identifier), mem_loc + address);
                                 if (!result_pair.second)
                                     std::cerr << "error: there is already a label: " << identifier << std::endl;
                             };
                             auto add_pattern = [&](std::istringstream& sstream, std::string label, std::string inst) {
-                                label.pop_back(); // remove ':' character
-                                add_label(std::move(label));
+                                add_label(std::move(label), instructions.size() << 1);
                                 add_instruction(sstream, std::move(inst));
                             };
                             std::string second_word;
@@ -207,7 +247,12 @@ namespace chip8
                             {
                                 if (second_word == "byte") // does the label refer to byte data?
                                 {
-                                    // ...
+                                    const std::vector<std::uint8_t> data = parse_data(sstream_line);
+                                    if (!data.size())
+                                        return {};
+                                    object_data_labels.push(first_word);
+                                    add_label(std::move(first_word), object_data.size());
+                                    std::copy(data.cbegin(), data.cend(), std::back_inserter(object_data));
                                 }
                                 else // maybe the label refers to an instruction
                                 {
@@ -235,17 +280,20 @@ namespace chip8
                     }
                 }
             }
+            // fix labels' addresses that refer to data
+            for (;!object_data_labels.empty(); object_data_labels.pop())
+                labels.find(object_data_labels.front())->second += instructions.size() * 2;
             // run through instructions
-            while (!instructions.empty())
+            for (;!instructions.empty(); instructions.pop())
             {
                 const std::pair<std::string/*instruction*/, std::string/*parameters*/>& inst = instructions.front();
                 const std::uint16_t opcode = parse_insruction(std::move(inst.first), inst.second, labels);
                 if (!opcode)
-                    std::cerr << "instruction parsing error" << std::endl;
+                    return {};
                 object_code.push_back(opcode >> 8 & 0xFF);
                 object_code.push_back(opcode      & 0xFF);
-                instructions.pop();
             }
+            std::copy(object_data.cbegin(), object_data.cend(), std::back_inserter(object_code));
             return object_code;
         }
     }
@@ -284,4 +332,3 @@ int main()
     }
     return 0;
 }
-
