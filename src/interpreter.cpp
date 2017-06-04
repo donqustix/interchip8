@@ -472,7 +472,7 @@ int main()
             chip8::Interpreter chip8_interpreter;
             chip8_interpreter.copy_font(chip8::fonts::original_chip8);
             {
-                std::vector<unsigned char> rom{::load_binary_file("res/BRIX")};
+                std::vector<unsigned char> rom{::load_binary_file("res/chip8_bin/chip8_program.bin")};
                 chip8_interpreter.copy_rom(rom.data(), rom.size());
             }
 
@@ -487,7 +487,7 @@ int main()
             for (int i = 0; i < 10; ++i)
                 keys_map.insert({SDL_SCANCODE_1 + i, (i + 1) % 10});
             
-            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 5;
+            constexpr unsigned seconds_per_update = 1000 / 60, insts_per_update = 10;
 
             unsigned acc_update_time = 0;
 

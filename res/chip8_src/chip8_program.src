@@ -1,0 +1,26 @@
+start:
+    ld v0, 0x6
+    ld F, v0
+
+    ld v0, 16
+    ld v1, 8
+    drw v0, v1, 0x5
+
+    ld v0, 21
+    ld v1, 8
+    drw v0, v1, 0x5
+
+    ld v0, 26
+    ld v1, 8
+    drw v0, v1, 0x5
+
+    ld DT, v0
+
+    ld v0, 10
+    ld DT, v0
+
+loop:
+    ld v0, DT
+    sne v0, 0x0
+    jp start
+    jp loop
