@@ -393,6 +393,8 @@ namespace
             auto target = reinterpret_cast<Sint16*>(stream);
             for (; len && audio_queue->front(); len -= 4, target += 2, --audio_queue->front())
                 target[0] = target[1] = 300 * ((len & 256) - 64);
+            for (; len; len -= 4, target += 2)
+                target[0] = target[1] = 0;
             if (!audio_queue->front()) audio_queue->pop();
         }
     }

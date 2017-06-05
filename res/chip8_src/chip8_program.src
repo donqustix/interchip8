@@ -1,4 +1,6 @@
-test: byte "dawdwada", 12, 2   ; AWHdahfj
+jp start
+
+sprite: byte 0, 1, 2, 4, 5
 
 start:
     ld v0, 0x6 ;ddaw
@@ -8,8 +10,6 @@ start:
     ld v1, 8
     drw v0, v1, 5          
 
-dadwad: byte 123, 0x23, 0xFF, 0, "dd. ad, d", 1
-
     ld v0, 21
     ld v1, 8
     drw v0, v1, 5
@@ -17,11 +17,6 @@ dadwad: byte 123, 0x23, 0xFF, 0, "dd. ad, d", 1
     ld v0, 26
     ld v1, 8
     drw v0, v1, 5
-
-    ld I, hello_world
-    ld v0, 32
-    ld v1, 16
-    drw v0, v1, 4
 
     ld DT, v0
 
@@ -34,4 +29,3 @@ wait:
     jp start
     jp wait
 
-hello_world: byte 36, 102, 0xE7, 0x3C
