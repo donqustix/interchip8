@@ -108,6 +108,9 @@ namespace chip8
                     }
                 }
             }
+            std::cout << "byte data: ";
+            std::copy(object_data.cbegin(), object_data.cend(), std::ostream_iterator<unsigned>{std::cout, ","});
+            std::cout << std::endl;
             return object_data;
         }
 
@@ -214,7 +217,6 @@ namespace chip8
             sstream_line >> first_word;
             if (first_word == "byte") // is it byte data?
             {
-                std::cout << std::endl;
                 const std::vector<std::uint8_t> byte_data{parse_byte_data(sstream_line)};
                 if (byte_data.size())
                     std::copy(byte_data.cbegin(), byte_data.cend(), std::back_inserter(bytes));
@@ -340,9 +342,10 @@ namespace chip8
                 const std::string& line = compiled_lines.front();
                 std::cout << PCs[i] << ' ';
                 const std::vector<std::uint8_t> bytes{parse_compiled_line(line, labels)};
-                if (!bytes.size())
-                    throw std::runtime_error{"error"};
-                std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(object_code));
+                if (bytes.size())
+                    std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(object_code));
+                else
+                    std::cerr << "error" << std::endl;
             }
             return object_code;
         }
