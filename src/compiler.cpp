@@ -26,7 +26,7 @@ namespace chip8
             {"sne vX NN",       "4XNN"},
             {"se vX vY",        "5XY0"},
             {"ld vX NN",        "6XNN"},
-            {"add vX N",        "7XNN"},
+            {"add vX NN",       "7XNN"},
             {"ld vX vY",        "8XY0"},
             {"or vX vY",        "8XY1"},
             {"and vX vY",       "8XY2"},
@@ -135,8 +135,13 @@ namespace chip8
                     switch (param[0])
                     {
                         case '[':
-                            // ...
+                        {
+                            if (param != "[I]")
+                                return 0;
+                            inst.push_back(' ');
+                            inst.append(param);
                             break;
+                        }
                         case 'v':
                         {
                             if (param.size() != 2 || regs > 1 || !is_hex_digit(param[1]))
@@ -196,7 +201,7 @@ namespace chip8
                     i += opcode_args[opcode_arg_index++].length() - 1;
                 }
             }
-            std::cout << "  -->  " << final_opcode_str << std::endl;
+            std::cout << "\t\t  -->  \t" << final_opcode_str << std::endl;
             return std::stoul(final_opcode_str, nullptr, 16);
         }
 
@@ -209,6 +214,7 @@ namespace chip8
             sstream_line >> first_word;
             if (first_word == "byte") // is it byte data?
             {
+                std::cout << std::endl;
                 const std::vector<std::uint8_t> byte_data{parse_byte_data(sstream_line)};
                 if (byte_data.size())
                     std::copy(byte_data.cbegin(), byte_data.cend(), std::back_inserter(bytes));
@@ -217,7 +223,8 @@ namespace chip8
             {
                 std::string next_line_part; // parameters
                 std::getline(sstream_line, next_line_part);
-                next_line_part.erase(std::remove(next_line_part.begin(), next_line_part.end(), ' '), next_line_part.end());
+                next_line_part.erase(
+                        std::remove(next_line_part.begin(), next_line_part.end(), ' '), next_line_part.end());
                 const std::uint16_t opcode = parse_instruction(std::move(first_word), next_line_part, labels);
                 if (opcode)
                 {
@@ -228,33 +235,45 @@ namespace chip8
             return bytes;
         }
 
+        unsigned byte_data_size(std::istringstream& sstream)
+        {
+            unsigned size = 0;
+            for (char c; sstream >> c;)
+            {
+                if (c == '"')
+                {
+                    while (sstream.get(c) && c != '"')
+                        ++size;
+                }
+                else if (c != ',')
+                {
+                    if (!is_dec_digit(c))
+                        return {};
+                    else
+                    {
+                        std::string value{c};
+                        while (sstream.get(c) && c != ',' && c != ' ')
+                            value.push_back(c);
+                        if (value[0] == '0' && value.size() > 2 && value[1] == 'x')
+                            ++size;
+                        else
+                        {
+                            if (!is_dec_number(value))
+                                return {};
+                            ++size;
+                        }
+                    }
+                }
+            }
+            return size;
+        }
+
         unsigned compiled_line_size(const std::string& line)
         {
             std::istringstream sstream_line{line};
             std::string first_word;
             sstream_line >> first_word;
-            if (first_word == "byte")
-            {
-                unsigned size = 0;
-                for (char c; sstream_line >> c;)
-                {
-                    if (c == '"')
-                    {
-                        while (sstream_line.get(c) && c != '"')
-                            ++size;
-                    }
-                    else if (c != ',')
-                    {
-                        if (!is_dec_digit(c))
-                            return 0;
-                        ++size;
-                    }
-                }
-                std::cout << size << std::endl;
-                return size;
-            }
-            else
-                return 2;
+            return first_word == "byte" ? byte_data_size(sstream_line) : 2;
         }
 
         std::vector<std::uint8_t> process(const std::string& source, unsigned PC = 0x200)
@@ -262,6 +281,7 @@ namespace chip8
             std::vector<std::uint8_t> object_code;
             std::unordered_map<std::string/*identifier*/, unsigned/*address*/> labels;
             std::queue<std::string> compiled_lines;
+            std::vector<unsigned> PCs;
             {
                 std::istringstream sstream_source{source};
                 std::string line;
@@ -277,17 +297,20 @@ namespace chip8
                     std::string first_word;
                     if (sstream_line >> first_word)
                     {
+                        auto push_compiled_line = [&compiled_lines, &PC](std::string line) noexcept {
+                            PC += compiled_line_size(line);
+                            compiled_lines.push(std::move(line));
+                        };
                         if (first_word.back() == ':' && first_word.size() > 1) // is it a label?
                         {
-                            auto push_compiled_line = [&compiled_lines, &PC](std::string line) noexcept {
-                                PC += compiled_line_size(line);
-                                compiled_lines.push(std::move(line));
-                            };
                             first_word.pop_back(); // remove ':' character
                             labels.emplace(std::move(first_word), PC);
                             std::string next_line_part;
                             if (std::getline(sstream_line, next_line_part)) // is there anything after the label?
+                            {
+                                PCs.push_back(PC);
                                 push_compiled_line(std::move(next_line_part));
+                            }
                             else
                             {
                                 for (std::string new_line; std::getline(sstream_source, new_line);)
@@ -295,6 +318,7 @@ namespace chip8
                                     // does the line contain non-whitespace symbols?
                                     if (new_line.find_first_not_of(' ') != std::string::npos)
                                     {
+                                        PCs.push_back(PC);
                                         strip_comment(new_line);
                                         push_compiled_line(std::move(new_line));
                                         break;
@@ -304,18 +328,18 @@ namespace chip8
                         }
                         else // maybe it's a compiled line
                         {
-                            compiled_lines.push(std::move(line));
-                            PC += 2;
+                            PCs.push_back(PC);
+                            push_compiled_line(std::move(line));
                         }
                     }
                 }
             }
             // compile all compiled lines
-            for (; !compiled_lines.empty(); compiled_lines.pop())
+            for (unsigned i = 0; !compiled_lines.empty(); compiled_lines.pop(), ++i)
             {
                 const std::string& line = compiled_lines.front();
+                std::cout << PCs[i] << ' ';
                 const std::vector<std::uint8_t> bytes{parse_compiled_line(line, labels)};
-                std::cout << line << std::endl;
                 if (!bytes.size())
                     throw std::runtime_error{"error"};
                 std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(object_code));

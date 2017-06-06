@@ -1,6 +1,24 @@
 jp start
 
-sprite: byte 0, 1, 2, 4, 5
+sprite: byte 0x18, 0x24, 0x42, 0x81
+        byte 0x81, 0x42, 0x24, 0x18
+
+magic_symbols: byte 0xA, 0xB, 0xC, 0xD, 0xE, 0xF
+
+; I - address, v1 - x, v2 - y, v3 - length
+draw_magic_symbols:
+    ld v4, 1
+    ld v0, [I]
+    repeat:
+        ld F, v0
+        drw v1, v2, 5
+        add v1, 5
+        ;add I, v4
+        sub v3, v4
+        ld v0, [I]
+        se v3, 0
+        jp repeat
+    ret
 
 start:
     ld v0, 0x6 ;ddaw
@@ -18,10 +36,35 @@ start:
     ld v1, 8
     drw v0, v1, 5
 
-    ld DT, v0
+    ld I, sprite
+    ld v0, 32
+    ld v1, 16
+    drw v0, v1, 8
+
+    ld I, magic_symbols
+    ld v4, 1
+    ld v2, 26
+    ld v1, 5
+    
+    ld v0, [I]
+    ld F, v0
+    drw v1, v2, 5
+    add v1, 5
+    add I, v4
+
+    ld v0, [I]
+    ld F, v0
+    drw v1, v2, 5
+    add v1, 5
+
+    ;se v3, 0
+    ;jp repeat
 
     ld v0, 10
     ld DT, v0
+
+    ld v0, 1
+    ld ST, v0
 
 wait:
     ld v0, DT
