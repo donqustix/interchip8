@@ -68,9 +68,9 @@ The project requires SDL2 library to be installed in your system.
 ```
 cd project_root_directory
 mkdir bin
+make interpreter (or just make to build the interpreter)
+make compiler
 ```
-`make interpreter` (or just `make` to build the interpreter)
-`make compiler`
 
 Then you can type `make run` in otder to test the program.
 
