@@ -62,7 +62,7 @@ Here is a result after compiling the code above:
 
 ## Building
 
-The project requires SDL2 library to be installed in your system.
+The project requires an SDL2 library to be installed in your system.
 
 **Enter the following commands to build for Linux**
 ```
@@ -73,6 +73,4 @@ make compiler
 ```
 
 Then you can type `make run` in otder to test the program.
-
-
 

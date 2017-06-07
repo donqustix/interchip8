@@ -1,5 +1,4 @@
 #include <unordered_map>
-#include <unordered_set>
 #include <iterator>
 #include <stdexcept>
 #include <iostream>
@@ -359,7 +358,7 @@ namespace
     {
         std::ofstream stream{filepath, std::ios::out | std::ios::binary};
         if (!stream)
-            throw std::runtime_error{"there is no such a file: " + filepath};
+            throw std::runtime_error{"it is failed to write a file: " + filepath};
         stream.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(std::uint8_t));
     }
 
