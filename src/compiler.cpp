@@ -1,4 +1,5 @@
 #include <unordered_map>
+#include <unordered_set>
 #include <iterator>
 #include <stdexcept>
 #include <iostream>
@@ -345,7 +346,7 @@ namespace chip8
                 if (bytes.size())
                     std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(object_code));
                 else
-                    std::cerr << "error" << std::endl;
+                    std::cerr << std::endl << "error" << std::endl;
             }
             return object_code;
         }
@@ -358,7 +359,7 @@ namespace
     {
         std::ofstream stream{filepath, std::ios::out | std::ios::binary};
         if (!stream)
-            throw std::runtime_error{"there is no a such file: " + filepath};
+            throw std::runtime_error{"there is no such a file: " + filepath};
         stream.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(std::uint8_t));
     }
 

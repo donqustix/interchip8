@@ -449,8 +449,8 @@ int main()
 {
     if (::SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) >= 0)
     {
-        constexpr int WINDOW_WIDTH  = 640;
-        constexpr int WINDOW_HEIGHT = 480;
+        constexpr int WINDOW_WIDTH  = 320;
+        constexpr int WINDOW_HEIGHT = 240;
         try
         {
             const auto window =
