@@ -1,4 +1,4 @@
-# chip8-interpreter
+# interchip8
 
 A Chip8 interpreter and a compiler written in C++14.
 
