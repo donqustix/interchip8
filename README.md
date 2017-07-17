@@ -72,5 +72,5 @@ make interpreter (or just make to build the interpreter)
 make compiler
 ```
 
-Then you can type `make run` in otder to test the program.
+Then you can type `make run` in order to test the program.
 
